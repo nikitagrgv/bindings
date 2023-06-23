@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSlider>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -74,7 +75,7 @@ public:
 		: slider_(slider)
 		, binding_(binding)
 	{
-		connections_.append(QObject::connect(slider, &QSlider::valueChanged,
+		connections_.append(QObject::connect(slider_, &QSlider::valueChanged,
 			[this](int value) { binding_.set(value); }));
 	}
 
@@ -99,12 +100,48 @@ private:
 	BindingTemplate<int> &binding_;
 };
 
+class SpinBoxView : public BindingTemplate<int>::View
+{
+public:
+	SpinBoxView(QSpinBox *spin_box, BindingTemplate<int> &binding)
+		: spin_box_(spin_box)
+		, binding_(binding)
+	{
+		QObject::connect(spin_box_, QOverload<int>::of(&QSpinBox::valueChanged),
+			[this](int value) { binding_.set(value); });
+	}
+
+	~SpinBoxView()
+	{
+		for (const auto &connection : connections_)
+		{
+			QObject::disconnect(connection);
+		}
+	}
+
+	void update() override
+	{
+		const int value = binding_.get();
+		spin_box_->setValue(value);
+	}
+
+private:
+	QVector<QMetaObject::Connection> connections_;
+
+	QSpinBox *spin_box_{};
+	BindingTemplate<int> &binding_;
+};
+
 template<class T>
 void BindingTemplate<T>::attach(QWidget *widget)
 {
 	if (auto slider = qobject_cast<QSlider *>(widget))
 	{
 		views_.append(new SliderView(slider, *this));
+	}
+	else if (auto spinbox = qobject_cast<QSpinBox *>(widget))
+	{
+		views_.append(new SpinBoxView(spinbox, *this));
 	}
 	else
 	{
@@ -154,14 +191,30 @@ public:
 		bindings_.append(binding);
 
 		{
+			auto *container = new QWidget(this);
+			sliders->layout()->addWidget(container);
+			new QHBoxLayout(container);
+
+			auto spinbox1 = new QSpinBox(this);
+			container->layout()->addWidget(spinbox1);
+			binding->attach(spinbox1);
+
 			auto slider1 = new QSlider(Qt::Horizontal, this);
-			sliders->layout()->addWidget(slider1);
+			container->layout()->addWidget(slider1);
 			binding->attach(slider1);
 		}
 
 		{
+			auto *container = new QWidget(this);
+			sliders->layout()->addWidget(container);
+			new QHBoxLayout(container);
+
+			auto spinbox2 = new QSpinBox(this);
+			container->layout()->addWidget(spinbox2);
+			binding->attach(spinbox2);
+
 			auto slider2 = new QSlider(Qt::Horizontal, this);
-			sliders->layout()->addWidget(slider2);
+			container->layout()->addWidget(slider2);
 			binding->attach(slider2);
 		}
 		layout->setStretchFactor(frame, 1);
