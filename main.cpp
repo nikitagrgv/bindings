@@ -1,12 +1,116 @@
 #include <QApplication>
 #include <QFrame>
 #include <QMainWindow>
+#include <QMetaObject>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QSlider>
 #include <QVBoxLayout>
 
+#include <memory>
+
+class BindingBase : public QObject
+{
+public:
+	virtual ~BindingBase() = default;
+
+	virtual void update() = 0;
+	virtual void attach(QWidget *widget) = 0;
+};
+
+
+template<class T>
+class BindingTemplate : public BindingBase
+{
+public:
+	using Getter = std::function<T()>;
+	using Setter = std::function<void(T)>;
+
+	class View
+	{
+	public:
+		View() = default;
+		virtual ~View() = default;
+		virtual void update() = 0;
+	};
+
+public:
+	BindingTemplate(Getter getter, Setter setter)
+		: getter_(std::move(getter))
+		, setter_(std::move(setter))
+	{}
+
+	~BindingTemplate() { qDeleteAll(views_); }
+
+	void attach(QWidget *widget) override;
+
+	T get() { return getter_(); }
+	void set(T value)
+	{
+		setter_(value);
+		update();
+	}
+
+	void update() override
+	{
+		for (const auto &view : views_)
+		{
+			view->update();
+		}
+	}
+
+private:
+	QVector<View *> views_;
+
+	Getter getter_;
+	Setter setter_;
+};
+
+class SliderView : public BindingTemplate<int>::View
+{
+public:
+	SliderView(QSlider *slider, BindingTemplate<int> &binding)
+		: slider_(slider)
+		, binding_(binding)
+	{
+		connections_.append(QObject::connect(slider, &QSlider::valueChanged,
+			[this](int value) { binding_.set(value); }));
+	}
+
+	~SliderView()
+	{
+		for (const auto &connection : connections_)
+		{
+			QObject::disconnect(connection);
+		}
+	}
+
+	void update() override
+	{
+		const int value = binding_.get();
+		slider_->setValue(value);
+	}
+
+private:
+	QVector<QMetaObject::Connection> connections_;
+
+	QSlider *slider_{};
+	BindingTemplate<int> &binding_;
+};
+
+template<class T>
+void BindingTemplate<T>::attach(QWidget *widget)
+{
+	if (auto slider = qobject_cast<QSlider *>(widget))
+	{
+		views_.append(new SliderView(slider, *this));
+	}
+	else
+	{
+		assert(0);
+	}
+}
 
 class Canvas : public QWidget
 {
@@ -45,19 +149,29 @@ public:
 		new QVBoxLayout(sliders);
 		layout->addWidget(sliders);
 
-		auto slider1 = new QSlider(Qt::Horizontal, this);
-		sliders->layout()->addWidget(slider1);
+		auto binding = new BindingTemplate<int>([this]() { return value_; },
+			[this](int value) { value_ = value; });
+		bindings_.append(binding);
 
-		auto slider2 = new QSlider(Qt::Horizontal, this);
-		sliders->layout()->addWidget(slider2);
+		{
+			auto slider1 = new QSlider(Qt::Horizontal, this);
+			sliders->layout()->addWidget(slider1);
+			binding->attach(slider1);
+		}
 
-
+		{
+			auto slider2 = new QSlider(Qt::Horizontal, this);
+			sliders->layout()->addWidget(slider2);
+			binding->attach(slider2);
+		}
 		layout->setStretchFactor(frame, 1);
 		layout->setStretchFactor(sliders, 0);
 	}
 
 private:
+	QVector<BindingBase *> bindings_;
 	Canvas *canvas_{};
+	int value_ = 50;
 };
 
 int main(int argc, char *argv[])
