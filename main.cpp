@@ -8,6 +8,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QVBoxLayout>
+#include <QVector>
 
 #include <memory>
 
@@ -17,6 +18,7 @@ public:
 	virtual ~BindingBase() = default;
 
 	virtual void update() = 0;
+
 	virtual void attach(QWidget *widget) = 0;
 };
 
@@ -32,7 +34,9 @@ public:
 	{
 	public:
 		View() = default;
+
 		virtual ~View() = default;
+
 		virtual void update() = 0;
 	};
 
@@ -47,6 +51,7 @@ public:
 	void attach(QWidget *widget) override;
 
 	T get() { return getter_(); }
+
 	void set(T value)
 	{
 		setter_(value);
@@ -164,6 +169,23 @@ public:
 	}
 };
 
+class Binder
+{
+public:
+	template<class T>
+	BindingBase *createBinding(std::function<T()> getter, std::function<void(T)> setter)
+	{
+		std::unique_ptr<BindingBase> binding
+			= std::make_unique<BindingTemplate<T>>(std::move(getter), std::move(setter));
+		BindingBase *ptr = binding.get();
+		bindings_.push_back(std::move(binding));
+		return ptr;
+	}
+
+private:
+	std::vector<std::unique_ptr<BindingBase>> bindings_;
+};
+
 
 class MainWidget : public QWidget
 {
@@ -186,9 +208,8 @@ public:
 		new QVBoxLayout(sliders);
 		layout->addWidget(sliders);
 
-		auto binding = new BindingTemplate<int>([this]() { return value_; },
+		auto binding = binder_.createBinding<int>([this]() { return value_; },
 			[this](int value) { value_ = value; });
-		bindings_.append(binding);
 
 		{
 			auto *container = new QWidget(this);
@@ -222,7 +243,7 @@ public:
 	}
 
 private:
-	QVector<BindingBase *> bindings_;
+	Binder binder_;
 	Canvas *canvas_{};
 	int value_ = 50;
 };
