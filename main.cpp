@@ -46,8 +46,6 @@ public:
 		, setter_(std::move(setter))
 	{}
 
-	~BindingTemplate() { qDeleteAll(views_); }
-
 	void attach(QWidget *widget) override;
 
 	T get() { return getter_(); }
@@ -67,7 +65,7 @@ public:
 	}
 
 private:
-	QVector<View *> views_;
+	std::vector<std::unique_ptr<View>> views_;
 
 	Getter getter_;
 	Setter setter_;
@@ -80,8 +78,9 @@ public:
 		: slider_(slider)
 		, binding_(binding)
 	{
-		connections_.append(QObject::connect(slider_, &QSlider::valueChanged,
-			[this](int value) { binding_.set(value); }));
+		auto c = QObject::connect(slider_, &QSlider::valueChanged,
+			[this](int value) { binding_.set(value); });
+		connections_.push_back(c);
 	}
 
 	~SliderView()
@@ -112,8 +111,9 @@ public:
 		: spin_box_(spin_box)
 		, binding_(binding)
 	{
-		QObject::connect(spin_box_, QOverload<int>::of(&QSpinBox::valueChanged),
+		auto c = QObject::connect(spin_box_, QOverload<int>::of(&QSpinBox::valueChanged),
 			[this](int value) { binding_.set(value); });
+		connections_.push_back(c);
 	}
 
 	~SpinBoxView()
@@ -142,11 +142,11 @@ void BindingTemplate<T>::attach(QWidget *widget)
 {
 	if (auto slider = qobject_cast<QSlider *>(widget))
 	{
-		views_.append(new SliderView(slider, *this));
+		views_.push_back(std::make_unique<SliderView>(slider, *this));
 	}
 	else if (auto spinbox = qobject_cast<QSpinBox *>(widget))
 	{
-		views_.append(new SpinBoxView(spinbox, *this));
+		views_.push_back(std::make_unique<SpinBoxView>(spinbox, *this));
 	}
 	else
 	{
